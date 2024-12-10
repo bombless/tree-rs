@@ -1,22 +1,14 @@
-use Color::*;
 use Tree::*;
 use std::rc::Rc;
-use std::borrow::Borrow;
-use std::fmt::{Debug, Display, Formatter};
+use std::fmt::{Debug, Display};
 use crate::rc::Element::{VirtualNode, VisibleNode};
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
 enum Color {Red, Black}
 
 pub enum Tree<T> {
     Leaf,
     Node(T, Rc<Tree<T>>, Rc<Tree<T>>),
-}
-
-impl<T> Tree<(Color, T)> {
-    fn unwrap(&self) -> &T {
-        match self { Node((_, v), _, _) => v, Leaf => panic!() }
-    }
 }
 
 impl<T> Tree<T> {
@@ -38,47 +30,14 @@ impl<T> Tree<T> {
             _ => Rc::new(Leaf),
         }
     }
-    fn set_left(&mut self, node: Rc<Tree<T>>) {
-        match self {
-            Leaf => panic!(),
-            Node(_, ptr, _) => *ptr = node,
-        }
-    }
-    fn set_right(&mut self, node: Rc<Tree<T>>) {
-        match self {
-            Leaf => panic!(),
-            Node(_, _, ptr) => *ptr = node,
-        }
-    }
 }
 
-trait IsRed {
-    fn is_red(&self) -> bool;
-}
-
-impl<T> IsRed for Option<Rc<Tree<(Color, T)>>> {
+impl<T: MakeRB> Tree<T> {
     fn is_red(&self) -> bool {
         match self {
-            Some(x) => x.is_red(),
-            None => false,
-        }
-    }
-}
-
-impl<T> Tree<(Color, T)> {
-    fn is_red(&self) -> bool {
-        match self {
-            Node((Red, _), _, _) => true,
+            Node(x, _, _) => x.is_red(),
             _ => false,
         }
-    }
-}
-
-fn as_ref<T>(rc: &Option<Rc<Tree<T>>>) -> Option<&Tree<T>> {
-    let optional_rc = rc.as_ref();
-    match optional_rc {
-        Some(r) => Some(&*r),
-        _ => None,
     }
 }
 
@@ -128,11 +87,29 @@ fn get_fourth_level_3<T>(t: &Tree<T>) -> Rc<Tree<T>> {
     }
 }
 
-fn place<T>((x, y, z): (T, T, T), (a, b, c, d): (Rc<Tree<(Color, T)>>, Rc<Tree<(Color, T)>>, Rc<Tree<(Color, T)>>, Rc<Tree<(Color, T)>>)) -> Tree<(Color, T)> {
-    Node((Red, y), Rc::new(Node((Black, x), a, b)), Rc::new(Node((Black, z), c, d)))
+pub trait MakeRB {
+    type Content;
+    fn red(_: Self::Content) -> Self;
+    fn black(_: Self::Content) -> Self;
+    fn is_red(&self) -> bool;
+    fn value(&self) -> &Self::Content;
+    fn take_value(self) -> Self::Content;
 }
 
-fn balance<T: Clone>(t: &Tree<(Color, T)>) -> Tree<(Color, T)> {
+impl<T: MakeRB> Tree<T> {
+    fn unwrap(&self) -> &T::Content {
+        match self {
+            Node(v, _, _) => v.value(),
+            _ => panic!(),
+        }
+    }
+}
+
+fn place<T: MakeRB>((x, y, z): (T::Content, T::Content, T::Content), (a, b, c, d): (Rc<Tree<T>>, Rc<Tree<T>>, Rc<Tree<T>>, Rc<Tree<T>>)) -> Tree<T> {
+    Node(T::red(y), Rc::new(Node(T::black(x), a, b)), Rc::new(Node(T::black(z), c, d)))
+}
+
+fn balance<T: MakeRB>(t: &Tree<T>) -> Tree<T> where T::Content: Clone, T: Clone {
     let first_level_2 = get_first_level_2(t);
     let second_level_2 = get_second_level_2(t);
     let first_level_3 = get_first_level_3(t);
@@ -187,30 +164,37 @@ fn balance<T: Clone>(t: &Tree<(Color, T)>) -> Tree<(Color, T)> {
     }
 }
 
-fn black_root<T>(t: Tree<(Color, T)>) -> Tree<(Color, T)> {
+fn black_root<T: MakeRB>(t: Tree<T>) -> Tree<T> where T::Content: Clone {
     match t {
         Leaf => Leaf,
-        Node((_, v), l, r) => Node((Black, v), l, r),
+        Node(v, l, r) => Node(T::black(v.take_value()), l, r),
     }
 }
 
-fn insert_aux<T: Ord + Clone>(v: T, t: &Tree<(Color, T)>) -> Tree<(Color, T)> {
+fn insert_aux<T: MakeRB>(v: T::Content, t: &Tree<T>) -> Tree<T> where T::Content: Ord + Clone, T: Clone {
     match t {
-        Leaf => Node((Red, v), Rc::new(Leaf), Rc::new(Leaf)),
-        Node((c, nv), lt, rt) => {
+        Leaf => Node(T::red(v), Rc::new(Leaf), Rc::new(Leaf)),
+        Node(x, lt, rt) => {
+            let c = x.is_red();
+            let nv = x.value();
+            let make = if c {
+                T::red
+            } else {
+                T::black
+            };
             if &v == nv {
-                Node((*c, nv.clone()), lt.clone(), rt.clone())
+                Node(make(nv.clone()), lt.clone(), rt.clone())
             }
             else if &v < nv {
-                Node((*c, nv.clone()), Rc::new(balance(&insert_aux(v, lt))), rt.clone())
+                Node(make(nv.clone()), Rc::new(balance(&insert_aux(v, lt))), rt.clone())
             } else {
-                Node((*c, nv.clone()), lt.clone(), Rc::new(balance(&insert_aux(v, rt))))
+                Node(make(nv.clone()), lt.clone(), Rc::new(balance(&insert_aux(v, rt))))
             }
         }
     }
 }
 
-fn insert<T: Ord + Clone>(v: T, t: &Tree<(Color, T)>) -> Tree<(Color, T)> {
+fn insert<T: MakeRB>(v: T::Content, t: &Tree<T>) -> Tree<T> where T::Content: Ord + Clone, T: Clone {
     black_root(insert_aux(v, t))
 }
 
@@ -400,6 +384,11 @@ fn print_line<T: Display + Clone>(line: Vec<(u32, Element<T>)>) {
                 }
                 print!("\\");
             }
+            VirtualNode => {
+                for _ in 0 .. n + 3 {
+                    print!(" ");
+                }
+            }
             _ => {
                 for _ in 0 ..= n {
                     print!(" ");
@@ -459,3 +448,57 @@ pub fn big_tree() -> Tree<char::C> {
     let d = node('D', rc(b), rc(f));
     d
 }
+
+
+
+mod rb {
+    use std::fmt::{Debug, Display, Formatter};
+    use crate::rc::Color::{*};
+    use crate::rc::MakeRB;
+
+    #[derive(Clone, Debug)]
+    pub struct RB(super::Color, char);
+    impl MakeRB for RB {
+        type Content = char;
+
+        fn red(v: Self::Content) -> Self {
+            RB(Red, v)
+        }
+
+        fn black(v: Self::Content) -> Self {
+            RB(Black, v)
+        }
+
+        fn is_red(&self) -> bool {
+            self.0 == Red
+        }
+
+        fn value(&self) -> &Self::Content {
+            &self.1
+        }
+
+        fn take_value(self) -> Self::Content {
+            self.1
+        }
+    }
+    impl Display for RB {
+        fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+            if self.0 == Black {
+                return write!(f, "|{}|", self.1)
+            }
+            let red_text = "\x1b[31m";
+            let reset_color = "\x1b[0m";
+            write!(f, "|{red_text}{}{reset_color}|", self.1)
+        }
+    }
+}
+
+pub fn rb_tree() -> Tree<rb::RB> {
+    let insert = insert::<rb::RB>;
+    let t = Leaf;
+    let t = insert('A', &t);
+    let t = insert('C', &t);
+    let t = insert('H', &t);
+    t
+}
+
