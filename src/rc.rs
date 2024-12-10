@@ -457,9 +457,9 @@ mod rb {
     use crate::rc::MakeRB;
 
     #[derive(Clone, Debug)]
-    pub struct RB(super::Color, char);
-    impl MakeRB for RB {
-        type Content = char;
+    pub struct RB<T>(pub(super) super::Color, pub(super) T);
+    impl<T> MakeRB for RB<T> {
+        type Content = T;
 
         fn red(v: Self::Content) -> Self {
             RB(Red, v)
@@ -481,7 +481,7 @@ mod rb {
             self.1
         }
     }
-    impl Display for RB {
+    impl Display for RB<char> {
         fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
             if self.0 == Black {
                 return write!(f, "|{}|", self.1)
@@ -493,8 +493,8 @@ mod rb {
     }
 }
 
-pub fn rb_tree() -> Tree<rb::RB> {
-    let insert = insert::<rb::RB>;
+pub fn rb_tree() -> Tree<rb::RB<char>> {
+    let insert = insert::<rb::RB<char>>;
     let t = Leaf;
     let t = insert('A', &t);
     let t = insert('C', &t);
@@ -502,3 +502,24 @@ pub fn rb_tree() -> Tree<rb::RB> {
     t
 }
 
+pub mod rb_set {
+    use super::Tree::{self, *};
+    pub use super::rb::RB;
+    pub fn empty<T>() -> Tree<T> {
+        Leaf
+    }
+    pub fn insert<T: Ord + Clone>(v: T, t: &Tree<RB<T>>) -> Tree<RB<T>> {
+        let insert = super::insert::<RB<T>>;
+        insert(v, t)
+    }
+    pub fn mem<'a, 'b, T: Ord + Clone>(v: &'a T, t: &'b Tree<RB<T>>) -> bool {
+        match t {
+            Node(RB(_, nv), l, r) => if v == nv {
+                true
+            } else {
+                if v < nv { mem(v, l) } else { mem(v, r) }
+            }
+            _ => false
+        }
+    }
+}
